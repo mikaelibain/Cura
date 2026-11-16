@@ -1,0 +1,22 @@
+process.env.PLAYWRIGHT_BROWSERS_PATH='.playwright-browsers';
+const { chromium }=await import('playwright');
+const { default:assert }=await import('node:assert/strict');
+const browser=await chromium.launch({headless:true});
+const page=await browser.newPage();
+const good='https://cdn.example.ca/good.jpg',bad='https://cdn.example.ca/bad.jpg';
+const base={sourceUrl:'https://shop.example.ca/product/dress',title:'Saved dress',brand:'',price:null,currency:'CAD',imageUrl:'',color:'',size:'',colorOptions:[],sizeOptions:[],availability:'',notes:'',unsure:false,x:130,y:180,autoPlaced:true,createdAt:'2026-09-01'};
+const items=[{...base,id:'partial'},{...base,id:'broken',x:450,imageUrl:bad,imageOptions:[bad,good],price:17,priceManual:true}];
+let calls=0,badLoads=0;
+await page.route('**/api/extract-product',async route=>{calls++;await route.fulfill({json:{title:'Verified dress',imageUrl:good,imageUrls:[good],currency:'CAD',resolutionStatus:'PARTIAL',fieldConfidence:{title:'HIGH',imageUrl:'HIGH'}}});});
+await page.route('**/api/image-proxy?*',async route=>{const u=new URL(route.request().url()).searchParams.get('url');if(u===bad){badLoads++;await route.fulfill({status:404,body:'broken'});}else await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="pink"/></svg>'});});
+await page.addInitScript(board=>localStorage.setItem('cura-link-only-board-v3',JSON.stringify(board)),{items,outfits:[{id:'saved-board',name:'Existing board',itemIds:items.map(i=>i.id),budget:null}]});
+await page.goto('http://localhost:5173');
+await page.waitForFunction(good=>JSON.parse(localStorage.getItem('cura-link-only-board-v3')).items.every(i=>i.imageUrl===good&&!i.isLoading),good);
+const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('cura-link-only-board-v3')));
+for(const original of items){const item=saved.items.find(i=>i.id===original.id);assert.equal(item.x,original.x);assert.equal(item.y,original.y);}
+assert.equal(await page.locator('[data-item-id="partial"]').getByRole('button',{name:'Add price',exact:true}).count(),1);
+assert.equal(await page.locator('[data-item-id="broken"]').getByRole('button',{name:'Add price',exact:true}).count(),0);
+for(const id of ['partial','broken'])await page.locator(`[data-item-id="${id}"] .sticker-art img`).evaluate(img=>img.decode());
+assert.equal(calls,1);assert.equal(badLoads,1);assert.ok(saved.items.find(i=>i.id==='broken').brokenImages[bad]);
+console.log(JSON.stringify({pass:true,calls,badLoads,partialImageShown:true,addPriceOnlyWhenMissing:true,positionsPreserved:true}));
+await browser.close();
