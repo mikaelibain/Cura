@@ -1,0 +1,28 @@
+# Generic exact-page enrichment verification
+
+Verified 2026-09-30. No product titles, images, identifiers, or prices were hard-coded into the resolver.
+
+1. **Anthropologie's missing preview:** its JSON-LD product URL is the canonical URL without color/size/type query parameters. The parser required literal normalized-URL equality, excluded that Product object, and did not fall back to OpenGraph or embedded-state images. Existing cards also had no automatic load-time refresh.
+2. **Missing URL product ID:** this compounded fallback failure (no verified title/identifier for image search), but was not the only cause. Exact-page first-party media now uses `exact_url_same_market` without requiring a numeric URL ID. Canonical product metadata can omit selection parameters. Size does not block images; explicit color conflicts still do.
+3. **Learned identifier:** Anthropologie JSON-LD exposed SKU and MPN `4130647160301`. The resolver carries learned identity into its fingerprint and stored evidence without changing the original pasted URL.
+4. **Anthropologie live result:** HTTP 200, Canadian exact page; title `By Anthropologie Sleeveless Ruffled Chiffon Midi Dress`; product image on `images.urbndata.com`; price **49.95 CAD**; **RESOLVED**. Canonical: `https://www.anthropologie.com/en-ca/shop/by-anthropologie-sleeveless-ruffled-chiffon-midi-dress2`. Incoming selectors `color=524`, `size=XL`, `type=STANDARD` remain intact. JSON-LD says Brown Floral; selected numeric color was not independently established, so image variant verification stays false. The image path contains `4130647160301_524_b`. The single current product-level CAD offer was accepted; XL-specific inventory was not asserted.
+5. **H&M failure:** direct pages were blocked. ProductGroup contained multiple size SKUs, with article identity in each variant's offer URL. The parser did not select those variants correctly. An intermediate diagnostic exposed a navigation label (`Women`) being used as a title; the final parser selects the exact article's Product variants and uses product headings/OpenGraph ahead of weak embedded labels.
+6. **H&M live results:** `1338299003`: `Asymmetric Dual-Fabric Dress - Dark beige`, image, **34.99 CAD**, **RESOLVED**. `1337767006`: `Cowl-Neck Dress - Bright purple`, image, **74.99 CAD**, **RESOLVED**. Both exact Canadian scrapes returned HTTP 200. Tavily, cross-locale fallback, and image search were unnecessary in these live runs.
+7. **Same-market language behavior:** automated resolver tests verify exact H&M `fr_ca` title/image/CAD-price acceptance. Exact foreign-market article images and titles remain acceptable; foreign prices are rejected. No currency conversion is used to manufacture Canadian offers.
+8. **Local quota:** started at **67/100**, ended at **83/100** daily attempted calls. Monthly local counters: Tavily **65/900**, Firecrawl **68/900**. Safety caps were retained. Local cap failures now report `LOCAL_QUOTA`, separately from upstream failures. Scrapes have their own call counter.
+9. **Calls/credits:** **12 successful Firecrawl exact-page scrapes** across live checks, diagnostic inspections, and browser enrichment; no successful Tavily/web/image searches were needed. Scrape responses report one credit each where recorded, consistent with **12 scrape credits**. Local counters increased by 16 reservations because four sandbox-blocked attempts were also reserved (three Firecrawl, one Tavily); those reservations are not proof of upstream billing. Provider account balances were not queried independently.
+10. **Existing cards:** browser verification loaded saved incomplete Anthropologie/H&M cards into localStorage before app startup and used the real API. All three filled title/image/price in place; images decoded in the browser. IDs, positions, notes, and creation dates stayed unchanged. A manual title and manual price remained untouched. Repeating the check used cached responses. This validates saved-card migration behavior in an isolated browser; it does not claim access to the user's already-open browser profile. A separate browser test confirmed partial-image display with Add price, manual-price button hiding, preserved positions inside an existing board, and one failed-image attempt followed by a successful alternative.
+11. **London Drugs regression:** `L0012328` remains **RESOLVED**, `Lancome Tonique Confort - 200ml`, verified product image, **52 CAD**, from one exact-page Firecrawl scrape. No downstream search ran.
+12. **Tests:** `npm test`: **318 passed, 0 failed**. Includes new canonical/slug identity, learned ID, ProductGroup, variant, local-quota, and broken-image candidate tests.
+13. **Build/dev:** `npm run build` succeeded. `npm run dev` started at `http://localhost:5173` with API on `8787`. Browser integration checks passed. No visual redesign was made.
+
+Evidence:
+- `scratch/anthro-enrichment-live.log`
+- `scratch/hm-london-enrichment-live.log`
+- `scratch/browser-enrichment.log`
+- `scratch/browser-image-fallback.log`
+- `scratch/existing-cards-enriched.png`
+- `scratch/enrichment-tests.log`
+- `scratch/enrichment-build.log`
+
+Implementation: `server/resolver/exactPage.mjs`, `productResolver.mjs`, `server/resolver/images.mjs`, quota/rotation diagnostics, `resolver-test.mjs`, `server.mjs`, and `src/App.tsx`. Resolver evidence version is now at least 4 so old incomplete evidence is eligible for refresh. Shared cache freshness, short negative caches, in-flight deduplication, and provider caps remain in control of provider work. Browser-reported broken URLs are excluded for 15 minutes rather than permanently poisoning the product.
